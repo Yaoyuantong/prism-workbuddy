@@ -1,0 +1,62 @@
+# ===========================================================================
+# 顶层 .gitignore —— 适用于整个仓库（含 server/ 子树）
+# 原则：源码/文档入库，产物/依赖/凭证/本机工具链一律不入库。
+# ===========================================================================
+
+# ---- 构建产物 ----
+build/
+/dist/
+/out/
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.a
+
+# ---- 本机 Go 工具链 / 模块缓存 / 第三方依赖目录（勿入库）----
+go/
+/gopath/
+/vendor-cache/
+shelldist/
+
+# ---- 本机验证用运行目录 ----
+run/
+logs/
+*.log
+
+# ---- 敏感数据：凭证 / 状态 / 保险柜 / 账号（绝对不得入库）----
+vault.json
+auths/
+accounts/
+data/
+backups/
+config.json
+*.key
+*.pem
+.env
+.env.*
+
+# ---- 旧版桌面壳可执行（WBMultiLogin 系列，非本仓库源码）----
+WBMultiLogin*
+WBMultiLogin*.exe
+
+# ---- 打包 / 安装包产物 ----
+/installer/
+*.zip
+*.7z
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+
+# ---- IDE / 编辑器 / 系统 ----
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 说明：*.md 与 README 必须入库，此处刻意不忽略 Markdown ----
+#（server/.gitignore 沿用了上游的 *.md 规则，仅作用于 server/ 子树，不影响本目录文档）
