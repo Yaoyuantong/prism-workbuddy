@@ -167,9 +167,16 @@
 ## 验证
 
 本树可独立编译与测试（复用同一 Go 1.22.5 工具链 + 模块缓存）：
-- `go build -trimpath -ldflags="-s -w" -o build/wb2api.exe ./cmd/server`
+- `go build -trimpath -buildvcs=false -ldflags="-s -w" -o build/wb2api.exe ./cmd/server`
 - `go test ./...`
-产物与主工作树构建的 `wb2api_patched.exe` 同量级（详见任务报告）。
+
+> **`-buildvcs=false` 是可复现构建的必需项**：本仓库首版产物是在 `oss\` **尚无 `.git`** 时构建的
+> （二进制不带 VCS 戳），而 Go 1.18+ 默认 `-buildvcs=true` 会把 `vcs.revision` / `vcs.time`
+> 编进二进制 ⇒ 同一份源码在「有 `.git` 的 clone 里」与「无 `.git` 的源树里」会得到
+> **字节数相同、md5 不同**的产物。要复现首版产物（md5 `5bafa496223ec008dbe387aacca5119e`，
+> 8,693,760B），必须显式加 `-buildvcs=false`。
+> （实测证据：干净 clone 内用不带该 flag 的命令得到 md5 `5f5351291489db5627d01e177edc4338`，
+> 加上后即得 `5bafa496…`；两者大小均为 8,693,760B。）
 
 ---
 

@@ -116,12 +116,16 @@ cd server
 
 # Windows（amd64）
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
-  go build -trimpath -ldflags="-s -w" -o build/wb2api.exe ./cmd/server
+  go build -trimpath -buildvcs=false -ldflags="-s -w" -o build/wb2api.exe ./cmd/server
 
 # Linux（amd64）
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-  go build -trimpath -ldflags="-s -w" -o build/wb2api ./cmd/server
+  go build -trimpath -buildvcs=false -ldflags="-s -w" -o build/wb2api ./cmd/server
 ```
+
+> `-buildvcs=false` 用于**可复现构建**：Go 1.18+ 默认 `-buildvcs=true` 会把当前 git 的
+> `vcs.revision` / `vcs.time` 编进二进制，导致同一份源码在有无 `.git` 的环境里产物 md5 不同。
+> 复现本仓库首版产物（md5 `5bafa496223ec008dbe387aacca5119e`）需保留该 flag。
 
 运行与自检：
 
