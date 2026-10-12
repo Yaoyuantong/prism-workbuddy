@@ -74,6 +74,10 @@ type Config struct {
 	// 来自 logging.request_client_info（缺省 true）；关闭时 reqlog 事件的来源字段
 	// 保持为空，归档与面板都不出现来源信息。
 	RecordClientInfo bool
+
+	// ModelAlias 模型别名表（G-ALIAS）的静态兜底值。热路径统一读 Live 快照，
+	// 此处只在 Live 为 nil（裸用/单测）时生效，语义同 APIKey / SoftCooldown。
+	ModelAlias map[string]string
 }
 
 // loadLive 返回当前运行期快照；Live 为 nil 时用静态字段合成。
@@ -85,6 +89,7 @@ func (h *Handler) loadLive() livecfg.Snapshot {
 		APIKey:           h.cfg.APIKey,
 		SoftCooldown:     h.cfg.SoftCooldown,
 		RecordClientInfo: h.cfg.RecordClientInfo,
+		ModelAliases:     h.cfg.ModelAlias,
 	}
 }
 
@@ -529,6 +534,11 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// bareModel 用于选号/粘性/出站 body 重写（前缀是网关侧路由协议，上游只认裸名）。
 	// 裸名 → ("cn", 原串)，CN 现状零回归。
 	realm, bareModel := resolveModel(peek.Model)
+	// 模型别名（G-ALIAS）：上游改名 / 客户端存了错名时，配置里加一条映射即可自愈。
+	// 在 resolveModel **之后**应用 —— 于是下游所有环节（per-model 限流、选号可用性、
+	// 模型级冷却、用量账本、出站 body 重写）看到的都是同一个真名，不会两套账。
+	// 未命中零影响；出站重写由下方 bareModel != peek.Model 的分支自动覆盖。
+	bareModel = applyModelAlias(h.loadLive().ModelAliases, bareModel)
 	modelRate := ""
 	if h.cfg.Upstream != nil {
 		modelRate = h.cfg.Upstream.ModelRate(realm, bareModel)

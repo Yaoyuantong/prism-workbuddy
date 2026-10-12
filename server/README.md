@@ -380,6 +380,7 @@ curl -s http://localhost:7863/v1/chat/completions \
 | `upstream.idle_timeout_seconds` | `300` | 聊天流中空闲上限（活跃续命，静默断流） |
 | `upstream.user_agent` | 空 | 出站 User-Agent 覆盖（空 = 现状 `CLI/2.63.2 CodeBuddy/2.63.2`）。官网「使用端」列按出站 UA 服务端归因；官方 WorkBuddy 桌面 UA 为 `WorkBuddy/<version>`，需要时可配 |
 | `features.sanitize_blacklist_fingerprints` | `true` | 出站请求体黑名单指纹脱敏 |
+| `model_alias` | `{}` | **模型别名表**（热生效）：`{"客户端发的模型名": "上游真名"}`。上游改名 / 客户端里存了旧名错名时，加一条映射即可自愈，无需重编基座。键值都必须是**裸名**（不带 `cn:` / `global:` 前缀——realm 由请求自己决定）；命中即改写，未命中零影响；写成 `a: b` 的自映射会被丢弃 |
 | `prompt.mode` | `custom` | 系统提示词模式：`custom` = 网关用自有提示词替换客户端 system；`append` = 开头连续 system/developer 块后插网关提示词（既有消息逐字不动）；`passthrough` = 透传客户端原始 system（降级重试仍切中性提示词） |
 | `prompt.file` | 空 | 提示词文件路径；空 = 内置默认（约 2KB）；路径非空但不可读 → 启动报错 |
 | `upstash.url` / `upstash.token` | 空 | 空 = 纯内存模式（Noop 降级，功能照常） |
@@ -623,6 +624,7 @@ http://127.0.0.1:7863/panel/
 来源信息比 token 计数敏感（IP 属个人信息），因此由 `logging.request_client_info` 控制，**缺省开启、热生效、面板「配置 → 日志」可关**；关闭后归档与面板都不再出现来源字段（老归档里没有该字段的条目显示 `—`）。
 
 **配置热生效**：保存配置后，`api_key`、`cooldown.soft_rate`、`features.sanitize_blacklist_fingerprints`、
+`model_alias`（模型别名表）、
 `logging.request_client_info`、`pool.*`（熔断/在途/权重）、`schedule.*`（时点/开关/余额刷新间隔）**立即生效，无需重启**；
 涉及进程装配期依赖的字段（`listen`、`auth_dir`、`state_file`、`upstream.*`、`upstash.*`、`session_sticky.ttl`）
 保存后会提示"需重启进程生效"。配置写入采用「深合并且原子替换」：只更新面板表单覆盖的键，
@@ -857,6 +859,19 @@ sudo chown -R 10001:10001 ./auths ./data ./config.json
 
 - **用 `./login.sh` 重新登录**覆盖凭证，重启后自动回池；
 - 或源码侧调用 `Pool.ReviveDisabled(uid)` 清除 `disabled` 状态（`state.json` 同步刷新）。
+
+### 上游把模型改名了 / 客户端报「模型不存在」怎么办？
+
+配 `model_alias` 把客户端发来的名字映射到上游真名，例如：
+
+```json
+"model_alias": { "deepseek-v4.1-flash": "deepseek-v4-flash" }
+```
+
+- 面板「配置 → 模型别名」里按「一行一条 `别名 = 真名`」填写，**保存即生效**（热更，不用重启、不用重编基座）。
+- 映射发生在 `cn:` / `global:` 前缀剥离**之后**，所以之后所有环节（per-model 限流、选号可用性、模型级冷却、用量账本、出站 body 里的 `model` 字段）看到的都是同一个真名，不会出现「别名一套账、真名一套账」。
+- 键值都不能带 `:`（realm 前缀属于请求方路由协议，别名只管裸名），带则保存直接报错点名。
+- 写错/未命中不会造成任何行为变化——只是照旧转发。
 
 ### 系统提示词被内容策略误杀怎么办？
 

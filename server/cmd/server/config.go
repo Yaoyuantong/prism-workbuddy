@@ -22,6 +22,19 @@ type Config struct {
 	AuthDir   string `json:"auth_dir"`   // ./auths
 	StateFile string `json:"state_file"` // ./data/state.json
 
+	// ModelAlias 模型别名表（G-ALIAS）：客户端发来的裸模型名 → 上游真名。
+	//
+	// 动机（社区实测）：上游会改名/收敛模型 ID，客户端里存着旧名或错名时请求
+	// 直接失败，用户无从下手 —— 网关此前只剥 cn:/global: 前缀，裸模型名零校验
+	// 原样转发。有了这张表，改名/错名改配置即可自愈，不需要重编基座。
+	//
+	// 语义：键是**裸名**（realm 前缀已由 resolveModel 剥离），值是上游真名；
+	// 两者都不能带 ":"（realm 路由由请求自己决定，别名不参与，带则报错）。
+	// 命中即改写，未命中零影响；键==值的自映射会被丢掉（等于没配）。
+	//
+	// 热生效：经 livecfg 快照下发，面板保存后立即对后续请求生效，无需重启。
+	ModelAlias map[string]string `json:"model_alias"`
+
 	Panel struct {
 		// PackageDetailLimit 积分构成页单账号默认展示的最近到期包数；<=0 回落 5。
 		PackageDetailLimit int `json:"package_detail_limit"`
@@ -598,7 +611,43 @@ func (c *Config) normalize() error {
 	if err := c.validateScheduleHours(); err != nil {
 		return err
 	}
+	if err := c.normalizeModelAlias(); err != nil {
+		return err
+	}
 	return c.normalizePrompt()
+}
+
+// normalizeModelAlias 校验并归一 model_alias（G-ALIAS）。空表合法（= 不启用）。
+//
+// 为什么 fail fast 而不是静默丢弃非法项：别名写错了却"保存成功"是最难排查的
+// 一类问题 —— 用户以为已生效，请求照旧失败，而配置里也看不出哪条有问题。
+// 报错信息带上具体那条映射，面板会原样透出。
+func (c *Config) normalizeModelAlias() error {
+	if len(c.ModelAlias) == 0 {
+		c.ModelAlias = nil
+		return nil
+	}
+	clean := make(map[string]string, len(c.ModelAlias))
+	for from, to := range c.ModelAlias {
+		k := strings.TrimSpace(from)
+		v := strings.TrimSpace(to)
+		if k == "" || v == "" {
+			return fmt.Errorf("model_alias: 别名不能是空串（%q → %q）", from, to)
+		}
+		if strings.Contains(k, ":") || strings.Contains(v, ":") {
+			return fmt.Errorf("model_alias: %q → %q 不能带 realm 前缀 —— "+
+				"cn:/global: 由请求自己决定走哪个域，别名只映射裸模型名", from, to)
+		}
+		if k == v {
+			continue // 自映射等于没配，丢掉（否则面板会出现"改了却看不出变化"）
+		}
+		clean[k] = v
+	}
+	if len(clean) == 0 {
+		clean = nil
+	}
+	c.ModelAlias = clean
+	return nil
 }
 
 // normalizePrompt 校验 prompt.mode 并按 file 加载提示词文本（custom/append 模式）。

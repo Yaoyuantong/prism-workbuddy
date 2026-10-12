@@ -986,6 +986,7 @@ const CFG_MAP = {
   sanitize_blacklist_fingerprints: ['features', 'sanitize_blacklist_fingerprints'],
   session_sticky_enabled: ['session_sticky', 'enabled'],
   request_client_info: ['logging', 'request_client_info'],
+  model_alias: ['model_alias'],
 };
 /* 「覆盖型」文本字段：空串本身是有意义的取值（= 回落到内置默认），必须照发。
  *
@@ -998,7 +999,33 @@ const CFG_MAP = {
  * 刻意不含 api_key：清空它 = 关闭整个鉴权，误触代价是网关变成无鉴权公开服务。
  * 该字段（以及提示文案"留空 = 不鉴权"与现状不符的问题）单独处理。
  */
-const CLEARABLE_CFG = new Set(['user_agent', 'prompt_file']);
+const CLEARABLE_CFG = new Set(['user_agent', 'prompt_file', 'model_alias']);
+
+/* ── 模型别名表（G-ALIAS）：面板内用「一行一条 `别名 = 真名`」纯文本编辑 ──
+ * 为什么不做成键值输入框：别名条数是随上游改名临时增减的（可能 0 条，也可能
+ * 十来条），固定行数的表单既不够用也浪费版面；文本框还能让用户从别处整段粘贴。
+ * 整表语义：文本框留空 = 清空全部别名（已登记进 CLEARABLE_CFG —— 其余文本字段
+ * 的「空 = 不下发」是防误清空，这里正好相反，清空是明确意图）。
+ * 解析：`#` 开头跳过；无 `=` 的行把整行当键、值留空 —— 交给后端 normalize
+ * 报错点名（"别名不能是空串（xxx → ""）"），前端不静默丢弃用户写的内容。
+ */
+function formatAliasText(obj) {
+  if (!obj || typeof obj !== 'object') return '';
+  return Object.keys(obj).sort().map(k => k + ' = ' + obj[k]).join('\n');
+}
+function parseAliasText(text) {
+  const out = {};
+  for (const line of String(text || '').split('\n')) {
+    const s = line.trim();
+    if (!s || s.startsWith('#')) continue;
+    const i = s.indexOf('=');
+    if (i < 0) { out[s] = ''; continue; }
+    const k = s.slice(0, i).trim();
+    const v = s.slice(i + 1).trim();
+    if (k) out[k] = v;
+  }
+  return out;
+}
 
 function dig(obj, path) { return path.reduce((o, k) => (o == null ? undefined : o[k]), obj); }
 function put(obj, path, val) {
@@ -1017,6 +1044,7 @@ async function loadConfig() {
       const el = f.elements[name];
       if (!el) continue;
       const v = dig(cfgLoaded, path);
+      if (name === 'model_alias') { el.value = formatAliasText(v); continue; }
       if (el.type === 'checkbox') el.checked = !!v;
       else if (Array.isArray(v)) el.value = v.join(', ');
       else el.value = v == null ? '' : v;
@@ -1031,6 +1059,8 @@ function collectConfig() {
     const el = f.elements[name];
     if (!el) continue;
     let v;
+    // 模型别名整表下发（空文本框 = {} = 清空全部），不受下面「空 = 不下发」约束。
+    if (name === 'model_alias') { put(out, path, parseAliasText(el.value)); continue; }
     if (el.type === 'checkbox') v = el.checked;
     else if (el.type === 'number') { v = el.value.trim() === '' ? undefined : Number(el.value); }
     else {

@@ -165,11 +165,13 @@ button.xs { padding: 3.5px 9px; font-size: 12.5px; border-radius: 6px; white-spa
    header 里若不收窄会把同行 note 挤到换行——收成内容宽并压小外观，与 button.xs 同款。 */
 select.xs { width: auto; padding: 3.5px 9px; font-size: 12.5px; border-radius: 6px; }
 button.icon { padding: 7px 9px; }
-input, select {
+input, select, textarea {
   font: inherit; color: var(--ink); background: var(--surface-2);
   border: 1px solid var(--line); border-radius: 7px; padding: 7px 11px; width: 100%;
 }
-input:focus, select:focus { outline: none; border-color: var(--accent); }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+/* textarea（模型别名表等「一行一条」的表单型输入）：等宽 + 可纵向拉伸，行数由 rows 定。 */
+textarea { resize: vertical; line-height: 1.6; min-height: 62px; }
 input.invalid { border-color: var(--bad); background: var(--bad-soft); }
 input.invalid:focus { border-color: var(--bad); }
 input[type=checkbox] { width: auto; accent-color: var(--accent); }
@@ -1061,6 +1063,10 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
               <input type="checkbox" name="sanitize_blacklist_fingerprints"></div>
             <div class="switch"><span class="lb">会话粘性路由</span>
               <input type="checkbox" name="session_sticky_enabled"></div>
+            <label class="fld" style="margin-top:12px"><span class="lb">模型别名（一行一条：客户端模型名 = 上游真名）</span>
+              <textarea name="model_alias" rows="3" spellcheck="false"
+                placeholder="deepseek-v4.1-flash = deepseek-v4-flash"></textarea>
+              <span class="hint">上游改名 / 客户端里存了错名时在这里兜底；留空 = 不用别名。<b>保存即生效（热更，无需重启）</b></span></label>
             <div class="hint" style="margin-top:10px">Upstash Redis 镜像、凭证目录与状态文件路径需手工编辑配置文件（判为重启项）。</div>
           </div>
         </div>

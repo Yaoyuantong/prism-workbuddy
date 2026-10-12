@@ -232,13 +232,17 @@ func main() {
 
 	// 管理面板日志镜像：标准 log（stderr）与 chat 表格日志（stdout）双路复制进
 	// 面板环形缓冲，供 /panel/api/logs 读取；控制台输出行为完全不变。
-	// live 承载可热改字段（api_key/soft_rate/脱敏开关），面板保存配置时在线替换。
+	// live 承载可热改字段（api_key/soft_rate/脱敏开关/模型别名），面板保存配置时在线替换。
 	live := livecfg.New(livecfg.Snapshot{
 		APIKey:               cfg.APIKey,
 		SoftCooldown:         cfg.SoftRateDur,
 		SanitizeFingerprints: cfg.Features.SanitizeBlacklistFingerprints,
 		RecordClientInfo:     cfg.Logging.RequestClientInfo,
+		ModelAliases:         cfg.ModelAlias,
 	})
+	if n := len(cfg.ModelAlias); n > 0 {
+		log.Printf("[model_alias] 已启用模型别名 %d 条（热生效：面板改完即对后续请求生效）", n)
+	}
 	// 用量记录器：与 state 文件同目录，随 state_file 配置一起搬移。
 	// datapath 由 state 文件路径推出，避免再加一个配置项。
 	usagePath := usagePathFor(cfg.StateFile)
@@ -309,6 +313,8 @@ func main() {
 		// 来源记录开关经 livecfg 热生效；此处同时填静态字段，供 Live 为 nil 的
 		// 裸用/测试路径拿到同一缺省值。
 		RecordClientInfo: cfg.Logging.RequestClientInfo,
+		// 模型别名表同样经 livecfg 热生效；静态字段只为 Live 为 nil 的裸用/测试兜底。
+		ModelAlias: cfg.ModelAlias,
 		// handler 侧第三道闸（global realm）：false（显式逃生门）时不列 global: 模型名。
 		GlobalEnabled: cfg.Global.Enabled,
 	})
@@ -485,6 +491,7 @@ func saveConfig(raw []byte, path string, live *livecfg.Holder, p *pool.Pool, up 
 		SoftCooldown:         newCfg.SoftRateDur,
 		SanitizeFingerprints: newCfg.Features.SanitizeBlacklistFingerprints,
 		RecordClientInfo:     newCfg.Logging.RequestClientInfo,
+		ModelAliases:         newCfg.ModelAlias,
 	})
 	up.SanitizeFingerprints.Store(newCfg.Features.SanitizeBlacklistFingerprints)
 	p.SetBreaker(newCfg.Pool.BreakerThreshold, newCfg.BreakerCooldownDur, newCfg.BreakerCooldownMaxD)
@@ -539,12 +546,21 @@ func restartRequiredFields(c *Config) []string {
 	return out
 }
 
+// replaceWholeKeys 这些顶层键是「整表替换」语义，不做深合并。
+//
+// 为什么需要例外：深合并对表单型嵌套对象是对的（面板只提交它管的键，未提交的
+// 兄弟键保持原样），但对**用户可增删条目的表**刚好相反 —— 用户在面板里删掉一条
+// model_alias，深合并会把旧键留在 config.json 里，表现就是"删不掉/改了没反应"。
+var replaceWholeKeys = map[string]bool{
+	"model_alias": true,
+}
+
 // mergeConfigMaps 把 incoming 深合并进 cur（原地），返回 cur。
 // 对嵌套对象逐键覆盖而不是整体替换：面板表单只提交它管理的键，
 // 未提交的兄弟键（含用户手写的未知键）保持原样。
 func mergeConfigMaps(cur, incoming map[string]any) map[string]any {
 	for k, v := range incoming {
-		if inMap, ok := v.(map[string]any); ok {
+		if inMap, ok := v.(map[string]any); ok && !replaceWholeKeys[k] {
 			if curMap, ok := cur[k].(map[string]any); ok {
 				cur[k] = mergeConfigMaps(curMap, inMap)
 				continue

@@ -14,11 +14,19 @@ import (
 )
 
 // Snapshot 一次读取的不可变配置视图。
+//
+// ⚠ 含引用类型（ModelAliases）时约定：**Store 之后不得再原地修改**该 map ——
+// 读方直接读同一份底层数据，原地改会绕过 atomic 指针、产生数据竞争。
+// 写方每次都应构造新 map（saveConfig 由 ParseConfig 产出全新对象，天然满足）。
 type Snapshot struct {
 	APIKey               string        // 网关/面板共同鉴权密钥；空 = 不鉴权
 	SoftCooldown         time.Duration // 429 软冷却基数（<=0 时调用方回退内置默认）
 	SanitizeFingerprints bool          // 出站请求体指纹脱敏
 	RecordClientInfo     bool          // 请求日志是否记录调用来源（客户端 IP / UA）
+	// ModelAliases 模型别名表（G-ALIAS）：客户端裸模型名 → 上游真名。
+	// 上游改名/客户端存了错名时，改这里即可自愈，不必重编基座；热生效。
+	// 空/nil = 不启用（零回归）。
+	ModelAliases map[string]string
 }
 
 // Holder 原子持有当前快照。
