@@ -7,6 +7,8 @@
 - 该项目的**原始上游** [`Sliverkiss/workbuddy2api`](https://github.com/Sliverkiss/workbuddy2api) **已删库**，本分支独立维护演进。
 - 我们相对上游 v1.13.0 的**逐文件改动清单**见 [`CHANGES-vs-upstream.md`](./CHANGES-vs-upstream.md)。
 - **纯开源、永久免费**。仅限**本人授权账号 + 本机 / 私有环境**使用，**禁止**批量注册小号、转售配额、加壳捆绑收费（详见文末[使用声明与合规边界](#使用声明与合规边界)）。
+- 🚀 **不想自己编译？** 直接下载 Windows 单文件安装包（桌面壳 + 基座 + 本地网关）：
+  [**Releases · v1.0.0**](https://github.com/Yaoyuantong/prism-workbuddy/releases/latest) —— 双击安装即用。
 
 ---
 
@@ -147,10 +149,16 @@ cd server
 docker compose up -d --build
 ```
 
-### 3. 桌面壳安装包（后续）
+### 3. 桌面壳安装包
 
-棱镜 PRISM 桌面壳 + 本地网关 + Go 基座的**单文件安装包**由 `packaging/` 脚本产出，
-后续提交随壳与 UI 源码一并纳入本仓库。
+棱镜 PRISM 桌面壳 + 本地网关 + Go 基座的**单文件安装包**已经发布，直接下载即可：
+
+- [**Releases · v1.0.0**](https://github.com/Yaoyuantong/prism-workbuddy/releases/latest) →
+  附件 `prism-opensource-setup-v1.0.0.exe`（Windows，双击安装，首次启动会自动探测
+  WebView2 Runtime / .NET Framework 并给出官方下载指引）
+
+安装包由 `packaging/` 脚本产出（壳源码 `shell/`、界面源 `ui/`、打包脚本 `packaging/` 将随后续提交
+纳入本仓库，目前仓库内只有 Go 基座 `server/` 这一层）。
 
 ## 来源与致谢
 
