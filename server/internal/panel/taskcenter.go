@@ -132,13 +132,24 @@ type queueItem struct {
 
 // queueState 队列运行状态。Seq 每次启动 +1——前端只渲染"自己启动的那一轮"，
 // 执行结束后的残留 items 不会覆盖后续的扫描结果视图。
+// Cancel（2026-10-13）：协作式取消标记——置位后各执行 goroutine 在「拿到账号
+// 槽位时」与「每个任务项开始前」检查，命中即把剩余 pending 项标 skipped 并退出；
+// 当前正在执行的那一项让它自然跑完（上游调用自带超时，不会永久挂起）。
 type queueState struct {
 	mu        sync.Mutex
 	running   bool
+	cancel    bool
 	startedAt time.Time
 	items     []queueItem
 	conc      int
 	seq       int
+}
+
+// isCancelled 取消标记读取（锁内）。
+func (q *queueState) isCancelled() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.cancel
 }
 
 // Panel 队列字段在 Panel 结构体上（panel.go）由 initQueue 惰性初始化；
@@ -197,6 +208,7 @@ func (p *Panel) startGrowthQueue(concurrency int, growth bool) (started bool, to
 	// 先占位：扫描（数秒级网络耗时）期间若并发再次触发，直接命中上面的 running
 	// 判拒，避免两个 goroutine 同时启动互相覆盖 q.items/q.seq。无待办时回滚。
 	q.running = true
+	q.cancel = false // 新一轮启动清掉上一轮的取消标记
 	q.startedAt = time.Now()
 	q.mu.Unlock()
 
@@ -305,10 +317,25 @@ func (p *Panel) RunGrowthQueueOnce() {
 func (p *Panel) runQueueItems(accts []queueAccount, items []queueItem, concurrency int) {
 	q := p.queue()
 	defer func() {
+		// 取消收尾：协作检查来不及处理的剩余 pending 项统一标 skipped，
+		// 避免轮询端永远看到「待执行」的僵尸条目。
 		q.mu.Lock()
+		cancelled := q.cancel
+		if cancelled {
+			for i := range q.items {
+				if q.items[i].Status == "pending" {
+					q.items[i].Status, q.items[i].Message = "skipped", "已取消"
+				}
+			}
+		}
 		q.running = false
+		q.cancel = false
 		q.mu.Unlock()
-		log.Printf("panel: 队列执行结束（共 %d 项）", len(items))
+		if cancelled {
+			log.Printf("panel: 队列被手动取消（共 %d 项，未执行的已标 skipped）", len(items))
+		} else {
+			log.Printf("panel: 队列执行结束（共 %d 项）", len(items))
+		}
 	}()
 
 	sem := make(chan struct{}, concurrency)
@@ -319,6 +346,15 @@ func (p *Panel) runQueueItems(accts []queueAccount, items []queueItem, concurren
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			// 取消检查①：等到槽位才发现已取消 → 该账号剩余项直接标 skipped。
+			if q.isCancelled() {
+				p.queueSet(q, one.a.UID, func(it *queueItem) {
+					if it.Status == "pending" {
+						it.Status, it.Message = "skipped", "已取消"
+					}
+				})
+				return
+			}
 			// per-account 互斥：与单任务/一键完成共用一把锁。
 			if !p.tryLockAccount(one.a.UID) {
 				p.queueSet(q, one.a.UID, func(it *queueItem) {
@@ -334,6 +370,11 @@ func (p *Panel) runQueueItems(accts []queueAccount, items []queueItem, concurren
 				time.Sleep(reportGap) // 给上游状态流转留时间
 			}
 			for i := range q.items {
+				// 取消检查②：每个任务项开始前——正在跑的那项让它完成，
+				// 后续项不再启动。
+				if q.isCancelled() {
+					return
+				}
 				uid, kind, code := q.snapshotAt(i)
 				if uid != one.a.UID {
 					continue
@@ -355,6 +396,26 @@ func (p *Panel) runQueueItems(accts []queueAccount, items []queueItem, concurren
 		}(one)
 	}
 	wg.Wait()
+}
+
+// tasksQueueCancel 手动取消执行队列（2026-10-13）：协作式——置取消标记后
+// 各执行 goroutine 在下一个任务项边界收尾；正在执行的那一项自然跑完
+// （上游调用自带超时）。队列不在运行时幂等返回。
+func (p *Panel) tasksQueueCancel(w http.ResponseWriter, r *http.Request) {
+	q := p.queue()
+	q.mu.Lock()
+	running := q.running
+	if running {
+		q.cancel = true
+	}
+	q.mu.Unlock()
+	if !running {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "cancelled": false, "message": "队列未在运行"})
+		return
+	}
+	log.Printf("panel: 收到队列取消请求")
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "cancelled": true,
+		"message": "正在取消：当前正在执行的任务会跑完，剩余任务不再执行"})
 }
 
 // queueAccount 队列执行的账号单元（runQueueItems 参数）。
