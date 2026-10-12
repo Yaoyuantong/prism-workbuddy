@@ -10,17 +10,21 @@
 
 ## 改动概述
 
-两条产品需求，基座原生没有：
+三条产品需求，基座原生没有：
 
 1. **钉号（主号）** —— 让用户指定「网关固定走某个账号」。上游只有 `paused`/`disabled`，
    没有 pin/priority 概念。只做 UI 层假标记是骗人的（界面显示主号、实际轮转照旧），
    因此真的改了选号逻辑。
 2. **今日已领积分** —— 上游账号模型只有 `checkin_done` 布尔，没有「今天领了多少积分」。
+3. **模型别名表（`model_alias`）** —— 上游改名 / 客户端里存了旧名错名时，以前只能重编基座。
+   现在配一条映射即可自愈，且**保存即热生效**（不重启、不断流）。
 
 契约字段（供前端/适配层对接）：
 - `GET /panel/api/overview` 顶层新增 `pinned_uid`(string, ""=未钉)、`claimed_today`(int64, 各账号求和)
 - `accounts[]` 每项新增 `claimed_today_credit`(int64, 0=未知/今日未领)
 - 配置 `pool.pinned_uid`(string)，`POST /panel/api/config` 改完**立即热生效**
+- 配置 `model_alias`(map[string]string)，键值都是**裸模型名**（不带 `cn:`/`global:` 前缀，
+  realm 由请求自己决定）；命中即改写、未命中零影响、自映射会被丢弃；同样**立即热生效**
 
 ---
 
@@ -132,6 +136,20 @@
   这些路径写入的是**真实已领积分**。
 
 ---
+
+## 模型别名（G-ALIAS，本 fork 新增）
+- `cmd/server/config.go`：新增 `ModelAlias map[string]string \`json:"model_alias"\`` 与
+  `normalizeModelAlias()`（校验裸名 / 丢弃自映射 / 空表合法）。
+- `internal/server/resolve_model.go`：新增 `applyModelAlias()`——在 `resolveModel()` **之后**、
+  `bareModel` 被使用**之前**应用。这样下游的限流键、选号、冷却、账本与出站 body 看到的是
+  **同一个真名**，不会出现「按旧名限流、按真名出站」的错位。
+- `internal/livecfg/livecfg.go`：`Snapshot` 新增 `ModelAliases`，随配置热替换。
+- `internal/panel/app.js` / `index.html`：面板可编辑别名表，保存走配置热生效链路。
+  合并配置时 `model_alias` 走**整表替换**（`replaceWholeKeys`）——别名表是可增删条目的表，
+  深合并会导致删除条目删不掉。
+- `internal/server/handler.go`：出站改写钩子接入别名，命中才改、未命中零开销。
+- `cmd/server/model_alias_test.go`、`internal/server/model_alias_test.go`（新增 ×2）：
+  覆盖命中改写 / 未命中透传 / 自映射丢弃 / 前后缀与大小写边界。
 
 ## scripts/probe_max_tokens.py（脱敏）
 - docstring 用法示例：`--base http://211.154.25.123:7863/v1` → `--base http://127.0.0.1:7863/v1`。
